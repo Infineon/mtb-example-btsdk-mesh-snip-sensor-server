@@ -43,6 +43,9 @@
 #include "wiced_bt_trace.h"
 #include "wiced_timer.h"
 #include "wiced_bt_mesh_app.h"
+#ifdef PRIVATE_PROXY_SUPPORTED
+#include "wiced_bt_mesh_private_proxy.h"
+#endif
 
 #ifdef HCI_CONTROL
 #include "wiced_transport.h"
@@ -126,6 +129,9 @@ uint8_t raw_valuey1[]                          = { 0x00, 0x20 };
 wiced_bt_mesh_core_config_model_t mesh_element1_models[] =
 {
     WICED_BT_MESH_DEVICE,
+#ifdef PRIVATE_PROXY_SUPPORTED
+    WICED_BT_MESH_MODEL_PRIVATE_PROXY_SERVER,
+#endif
     WICED_BT_MESH_MODEL_SENSOR_SERVER,
 };
 #define MESH_APP_NUM_MODELS  (sizeof(mesh_element1_models) / sizeof(wiced_bt_mesh_core_config_model_t))

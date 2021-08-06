@@ -70,6 +70,8 @@ SUPPORTED_TARGETS = \
   CYBT-343052-EVAL \
   CYW920735Q60EVB-01 \
   CYW920835M2EVB-01 \
+  CYBLE-343072-EVAL-M2B \
+  CYBLE-333074-EVAL-M2B \
   CYW920721M2EVK-01 \
   CYW920721M2EVK-02
 
@@ -125,6 +127,9 @@ PTS ?= 0
 ifeq ($(PTS),1)
 CY_APP_DEFINES += -DPTS
 endif # PTS
+
+# Private proxy
+#CY_APP_DEFINES += -DPRIVATE_PROXY_SUPPORTED
 
 # These flags control whether the prebuilt mesh libs (core, models)
 # will be the trace enabled versions or not
