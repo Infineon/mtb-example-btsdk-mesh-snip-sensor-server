@@ -507,8 +507,8 @@ void mesh_sensor_publish_timer_callback(TIMER_PARAM_TYPE arg)
                 WICED_BT_TRACE("Native cur value:%d sent:%d delta:%d/%d\n",
                         mesh_sensor_current_temperature, mesh_sensor_sent_value, p_sensor->cadence.trigger_delta_up, p_sensor->cadence.trigger_delta_down);
 
-                if (((p_sensor->cadence.trigger_delta_up != 0)   && (mesh_sensor_current_temperature >= (mesh_sensor_sent_value + p_sensor->cadence.trigger_delta_up))) ||
-                    ((p_sensor->cadence.trigger_delta_down != 0) && (mesh_sensor_current_temperature <= (mesh_sensor_sent_value - p_sensor->cadence.trigger_delta_down))))
+                if (((p_sensor->cadence.trigger_delta_up != 0)   && ((int32_t)mesh_sensor_current_temperature >= (int32_t)(mesh_sensor_sent_value + p_sensor->cadence.trigger_delta_up))) ||
+                    ((p_sensor->cadence.trigger_delta_down != 0) && ((int32_t)mesh_sensor_current_temperature <= (int32_t)(mesh_sensor_sent_value - p_sensor->cadence.trigger_delta_down))))
                 {
                     WICED_BT_TRACE("Pub needed native value\n");
                     pub_needed = WICED_TRUE;
