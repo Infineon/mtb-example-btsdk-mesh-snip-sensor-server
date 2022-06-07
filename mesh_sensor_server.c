@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -107,8 +107,8 @@ uint8_t mesh_system_id[8]                                                  = { 0
 
 // Present Ambient Temperature property uses Temperature 8 format, i.e. 0.5 degree Celsius.
 int8_t        mesh_sensor_current_temperature = 42; // 21 degree Celsius
-int8_t        mesh_sensor_sent_value = 0;           //
-uint32_t      mesh_sensor_sent_time;                // time stamp when temperature was published
+int8_t        mesh_sensor_sent_value = 42;          // Same as mesh_sensor_current_temperature to prevent sending status on first timer callback without any changes in the temperature
+uint32_t      mesh_sensor_sent_time = 0;            // time stamp when temperature was published
 uint32_t      mesh_sensor_publish_period = 0;       // publish period in msec
 uint32_t      mesh_sensor_fast_publish_period = 0;  // publish period in msec when values are outside of limit
 wiced_timer_t mesh_sensor_cadence_timer;
@@ -273,7 +273,7 @@ wiced_bt_mesh_app_func_table_t wiced_bt_mesh_app_func_table =
     NULL,                       // attention processing
     mesh_app_notify_period_set, // notify period set
     mesh_app_proc_rx_cmd,       // WICED HCI command
-    NULL,                   // LPN sleep
+    NULL,                       // LPN sleep
     NULL                        // factory reset
 };
 
