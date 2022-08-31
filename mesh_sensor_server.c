@@ -60,7 +60,6 @@ extern wiced_bt_cfg_settings_t wiced_bt_cfg_settings;
  ******************************************************/
 #define MESH_PID                0x3122
 #define MESH_VID                0x0002
-#define MESH_CACHE_REPLAY_SIZE  0x0008
 
 #define MESH_TEMP_SENSOR_PROPERTY_ID                    WICED_BT_MESH_PROPERTY_PRESENT_AMBIENT_TEMPERATURE
 #define MESH_TEMP_SENSOR_VALUE_LEN                      WICED_BT_MESH_PROPERTY_LEN_PRESENT_AMBIENT_TEMPERATURE
@@ -85,17 +84,17 @@ static wiced_bool_t mesh_app_notify_period_set(uint8_t element_idx, uint16_t com
 static uint32_t mesh_app_proc_rx_cmd(uint16_t opcode, uint8_t *p_data, uint32_t length);
 static void mesh_sensor_server_restart_timer(wiced_bt_mesh_core_config_sensor_t *p_sensor);
 static void mesh_sensor_server_report_handler(uint16_t event, uint8_t element_idx, void *p_get, void *p_ref_data);
-static void mesh_sensor_server_config_change_handler(uint8_t element_idx, uint16_t event, uint16_t property_id, uint16_t setting_prop_id);
+static void mesh_sensor_server_config_change_handler(uint8_t element_idx, uint16_t event, void* p_data);
 static void mesh_sensor_server_status_changed(uint8_t element_idx, uint8_t *p_data, uint32_t length);
 static void mesh_sensor_server_send_column_status(wiced_bt_mesh_event_t *p_event, wiced_bt_mesh_sensor_column_get_data_t *p_get_column);
 static void mesh_sensor_server_send_series_status(wiced_bt_mesh_event_t *p_event, wiced_bt_mesh_sensor_series_get_data_t* data);
-static void mesh_sensor_server_process_cadence_changed(uint8_t element_idx, uint16_t property_id);
-static void mesh_sensor_server_process_setting_changed(uint8_t element_idx, uint16_t property_id, uint16_t setting_property_id);
+static void mesh_sensor_server_process_cadence_changed(uint8_t element_idx, wiced_bt_mesh_sensor_cadence_status_data_t* p_data);
+static void mesh_sensor_server_process_setting_changed(uint8_t element_idx, wiced_bt_mesh_sensor_setting_status_data_t* p_data);
 static void mesh_sensor_publish_timer_callback(TIMER_PARAM_TYPE arg);
 
 #ifdef HCI_CONTROL
-static void mesh_sensor_hci_event_send_cadence_set(wiced_bt_mesh_hci_event_t *p_hci_event, wiced_bt_mesh_sensor_cadence_set_data_t *p_set);
-static void mesh_sensor_hci_event_send_setting_set(wiced_bt_mesh_hci_event_t *p_hci_event, wiced_bt_mesh_sensor_setting_set_data_t *p_set);
+static void mesh_sensor_hci_event_send_cadence_status(uint8_t element_idx, wiced_bt_mesh_sensor_cadence_status_data_t* p_data);
+static void mesh_sensor_hci_event_send_setting_status(uint8_t element_idx, wiced_bt_mesh_sensor_setting_status_data_t* p_data);
 #endif
 
 /******************************************************
@@ -223,7 +222,6 @@ wiced_bt_mesh_core_config_t  mesh_config =
     .company_id         = MESH_COMPANY_ID_CYPRESS,                  // Company identifier assigned by the Bluetooth SIG
     .product_id         = MESH_PID,                                 // Vendor-assigned product identifier
     .vendor_id          = MESH_VID,                                 // Vendor-assigned product version identifier
-    .replay_cache_size  = MESH_CACHE_REPLAY_SIZE,                   // Number of replay protection entries, i.e. maximum number of mesh devices that can send application messages to this device.
 #if defined(LOW_POWER_NODE) && (LOW_POWER_NODE == 1)
     .features           = WICED_BT_MESH_CORE_FEATURE_BIT_LOW_POWER, // A bit field indicating the device features. In Low Power mode no Relay, no Proxy and no Friend
     .friend_cfg         =                                           // Empty Configuration of the Friend Feature
@@ -395,31 +393,18 @@ void mesh_sensor_server_restart_timer(wiced_bt_mesh_core_config_sensor_t *p_sens
 /*
  * Process the configuration changes set by the Sensor Client.
  */
-//void mesh_sensor_server_config_change_handler(uint8_t element_idx, uint16_t event, void *p_data)
-void mesh_sensor_server_config_change_handler(uint8_t element_idx, uint16_t event, uint16_t property_id, uint16_t setting_property_id)
+void mesh_sensor_server_config_change_handler(uint8_t element_idx, uint16_t event, void *p_data)
 {
-#if defined HCI_CONTROL
-    wiced_bt_mesh_hci_event_t *p_hci_event;
-#endif
     WICED_BT_TRACE("mesh_sensor_server_config_change_handler msg: %d\n", event);
 
     switch (event)
     {
-
-    case WICED_BT_MESH_SENSOR_CADENCE_SET:
-#if defined HCI_CONTROL
-//        if ((p_hci_event = wiced_bt_mesh_create_hci_event(p_event)) != NULL)
-//            mesh_sensor_hci_event_send_cadence_set(p_hci_event, (wiced_bt_mesh_sensor_cadence_set_data_t *)p_data);
-#endif
-        mesh_sensor_server_process_cadence_changed(element_idx, property_id);
+    case WICED_BT_MESH_SENSOR_CADENCE_STATUS:
+        mesh_sensor_server_process_cadence_changed(element_idx, (wiced_bt_mesh_sensor_cadence_status_data_t *) p_data);
         break;
 
-    case WICED_BT_MESH_SENSOR_SETTING_SET:
-#if defined HCI_CONTROL
-//        if ((p_hci_event = wiced_bt_mesh_create_hci_event(p_event)) != NULL)
-//            mesh_sensor_hci_event_send_setting_set(p_hci_event, (wiced_bt_mesh_sensor_setting_set_data_t *)p_data);
-#endif
-        mesh_sensor_server_process_setting_changed(element_idx, property_id, setting_property_id);
+    case WICED_BT_MESH_SENSOR_SETTING_STATUS:
+        mesh_sensor_server_process_setting_changed(element_idx, (wiced_bt_mesh_sensor_setting_status_data_t *) p_data);
         break;
     }
 }
@@ -456,12 +441,12 @@ void mesh_sensor_server_report_handler(uint16_t event, uint8_t element_idx, void
 /*
  * Process cadence change
  */
-void mesh_sensor_server_process_cadence_changed(uint8_t element_idx, uint16_t property_id)
+void mesh_sensor_server_process_cadence_changed(uint8_t element_idx, wiced_bt_mesh_sensor_cadence_status_data_t* p_data)
 {
     wiced_bt_mesh_core_config_sensor_t *p_sensor;
     p_sensor = &mesh_config.elements[element_idx].sensors[MESH_TEMPERATURE_SENSOR_INDEX];
 
-    WICED_BT_TRACE("cadence changed property id:%04x\n", property_id);
+    WICED_BT_TRACE("cadence changed property id:%04x\n", p_data->property_id);
     WICED_BT_TRACE("Fast cadence period divisor:%d\n", p_sensor->cadence.fast_cadence_period_divisor);
     WICED_BT_TRACE("Is trigger type percent:%d\n", p_sensor->cadence.trigger_type_percentage);
     WICED_BT_TRACE("Trigger delta up:%d\n", p_sensor->cadence.trigger_delta_up);
@@ -471,6 +456,19 @@ void mesh_sensor_server_process_cadence_changed(uint8_t element_idx, uint16_t pr
     WICED_BT_TRACE("Fast cadence high:%d\n", p_sensor->cadence.fast_cadence_high);
 
     mesh_sensor_server_restart_timer(p_sensor);
+
+#if defined HCI_CONTROL
+    // Add sensor data before sending it to the upper layer
+    p_data->is_data_present = WICED_TRUE;
+    p_data->cadence_data.fast_cadence_high = p_sensor->cadence.fast_cadence_high;
+    p_data->cadence_data.fast_cadence_low = p_sensor->cadence.fast_cadence_low;
+    p_data->cadence_data.fast_cadence_period_divisor = p_sensor->cadence.fast_cadence_period_divisor;
+    p_data->cadence_data.min_interval = p_sensor->cadence.min_interval;
+    p_data->cadence_data.trigger_delta_down = p_sensor->cadence.trigger_delta_down;
+    p_data->cadence_data.trigger_delta_up = p_sensor->cadence.trigger_delta_up;
+
+    mesh_sensor_hci_event_send_cadence_status(element_idx, (wiced_bt_mesh_sensor_cadence_status_data_t *)p_data);
+#endif
 }
 
 /*
@@ -664,9 +662,13 @@ void mesh_sensor_server_send_column_status(wiced_bt_mesh_event_t *p_event, wiced
 /*
  * Process setting change.  Library already copied the new value to the mesh_config.  Add additional processing here if needed.
  */
-void mesh_sensor_server_process_setting_changed(uint8_t element_idx, uint16_t property_id, uint16_t setting_property_id)
+void mesh_sensor_server_process_setting_changed(uint8_t element_idx, wiced_bt_mesh_sensor_setting_status_data_t *p_data)
 {
-    WICED_BT_TRACE("setting changed, prop_id:%x, setting prop_id:%x\n", property_id, setting_property_id);
+    WICED_BT_TRACE("setting changed, prop_id:%x, setting prop_id:%x\n", p_data->property_id, p_data->setting.setting_property_id);
+
+#if defined HCI_CONTROL
+    mesh_sensor_hci_event_send_setting_status(element_idx, (wiced_bt_mesh_sensor_setting_status_data_t *) p_data);
+#endif
 }
 
 
@@ -733,41 +735,65 @@ uint32_t mesh_app_proc_rx_cmd(uint16_t opcode, uint8_t *p_data, uint32_t length)
 /*
  * Send Sensor Cadence Set event over transport
  */
-void mesh_sensor_hci_event_send_cadence_set(wiced_bt_mesh_hci_event_t *p_hci_event, wiced_bt_mesh_sensor_cadence_set_data_t *p_set)
+void mesh_sensor_hci_event_send_cadence_status(uint8_t element_idx, wiced_bt_mesh_sensor_cadence_status_data_t* p_data)
+{
+    wiced_bt_mesh_hci_event_t* p_hci_event = wiced_bt_mesh_alloc_hci_event(element_idx);
+    if (p_hci_event)
 {
     uint8_t *p = p_hci_event->data;
-    uint8_t flag_trigger_type;
 
-    WICED_BT_TRACE("mesh_sensor_hci_event_send_cadence_set:\n");
+        UINT16_TO_STREAM(p, p_data->property_id);
+        WICED_BT_TRACE(" property_id:%x\n", p_data->property_id);
 
-    UINT16_TO_STREAM(p, p_set->property_id);
-    UINT8_TO_STREAM(p, p_set->prop_value_len);
-    UINT16_TO_STREAM(p, p_set->cadence_data.fast_cadence_period_divisor);
-    UINT8_TO_STREAM(p, p_set->cadence_data.trigger_type ? 0x01 : 0x00);
-    UINT32_TO_STREAM(p, p_set->cadence_data.trigger_delta_down);
-    UINT32_TO_STREAM(p, p_set->cadence_data.trigger_delta_up);
-    UINT32_TO_STREAM(p, p_set->cadence_data.min_interval);
-    UINT32_TO_STREAM(p, p_set->cadence_data.fast_cadence_low);
-    UINT32_TO_STREAM(p, p_set->cadence_data.fast_cadence_high);
+        if (p_data->is_data_present)
+        {
+            WICED_BT_TRACE("fast_cadence_period_divisor:%x\n", p_data->cadence_data.fast_cadence_period_divisor);
+            WICED_BT_TRACE("trigger_type:%x\n", p_data->cadence_data.trigger_type);
+            WICED_BT_TRACE("trigger_delta_down:%d\n", p_data->cadence_data.trigger_delta_down);
+            WICED_BT_TRACE("trigger_delta_up:%d\n", p_data->cadence_data.trigger_delta_up);
+            WICED_BT_TRACE("min interval:%x\n", p_data->cadence_data.min_interval);
+            WICED_BT_TRACE("fast_cadence_high:%d\n", p_data->cadence_data.fast_cadence_high);
+            WICED_BT_TRACE("fast_cadence_low:%d\n", p_data->cadence_data.fast_cadence_low);
 
-    mesh_transport_send_data(HCI_CONTROL_MESH_EVENT_SENSOR_CADENCE_SET, (uint8_t *)p_hci_event, (uint16_t)(p - (uint8_t *)p_hci_event));
+            UINT16_TO_STREAM(p, p_data->cadence_data.fast_cadence_period_divisor);
+            UINT8_TO_STREAM(p, p_data->cadence_data.trigger_type);
+            UINT32_TO_STREAM(p, p_data->cadence_data.trigger_delta_down);
+            UINT32_TO_STREAM(p, p_data->cadence_data.trigger_delta_up);
+            UINT32_TO_STREAM(p, p_data->cadence_data.min_interval);
+            UINT32_TO_STREAM(p, p_data->cadence_data.fast_cadence_low);
+            UINT32_TO_STREAM(p, p_data->cadence_data.fast_cadence_high);
+        }
+        mesh_transport_send_data(HCI_CONTROL_MESH_EVENT_SENSOR_CADENCE_STATUS, (uint8_t*)p_hci_event, (uint16_t)(p - (uint8_t*)p_hci_event));
+    }
 }
 
 /*
  * Send Sensor Setting Set event over transport
  */
-void mesh_sensor_hci_event_send_setting_set(wiced_bt_mesh_hci_event_t *p_hci_event, wiced_bt_mesh_sensor_setting_set_data_t *p_set)
+void mesh_sensor_hci_event_send_setting_status(uint8_t element_idx, wiced_bt_mesh_sensor_setting_status_data_t* p_data)
+{
+    wiced_bt_mesh_hci_event_t* p_hci_event = wiced_bt_mesh_alloc_hci_event(element_idx);
+    if (p_hci_event)
 {
     uint8_t *p = p_hci_event->data;
+        int i;
 
-    WICED_BT_TRACE("mesh_sensor_hci_event_send_setting_get:\n");
+        UINT16_TO_STREAM(p, p_data->property_id);
+        UINT8_TO_STREAM(p, p_data->setting.setting_property_id);
+        UINT8_TO_STREAM(p, p_data->setting.access);
+        UINT8_TO_STREAM(p, p_data->setting.value_len);
+        ARRAY_TO_STREAM(p, p_data->setting.val, p_data->setting.value_len);
 
-    UINT16_TO_STREAM(p, p_set->property_id);
-    UINT16_TO_STREAM(p, p_set->setting_property_id);
-    UINT8_TO_STREAM(p, p_set->prop_value_len);
-    ARRAY_TO_STREAM(p, p_set->setting_raw_val, p_set->prop_value_len);
+        WICED_BT_TRACE(" property_id:%x\n", p_data->property_id);
+        WICED_BT_TRACE(" setting_property_id:%x\n", p_data->setting.setting_property_id);
+        WICED_BT_TRACE(" access:%x\n", p_data->setting.access);
+        WICED_BT_TRACE(" value_len:%x\n", p_data->setting.value_len);
+        for (i = 0; i < p_data->setting.value_len; i++)
+            WICED_BT_TRACE(" %x ", p_data->setting.val[i]);
 
-    mesh_transport_send_data(HCI_CONTROL_MESH_EVENT_SENSOR_SETTING_SET, (uint8_t *)p_hci_event, (uint16_t)(p - (uint8_t *)p_hci_event));
+        WICED_BT_TRACE("\n");
+        mesh_transport_send_data(HCI_CONTROL_MESH_EVENT_SENSOR_SETTING_STATUS, (uint8_t*)p_hci_event, (uint16_t)(p - (uint8_t*)p_hci_event));
+    }
 }
 
 #endif
